@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CI 流水线面板</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", sans-serif; background: #0d1117; color: #e6e6e6; min-height: 100vh; }
+  header { padding: 18px 32px; background: linear-gradient(90deg, #161b22, #1a2233); border-bottom: 1px solid #30363d; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 5; }
+  header h1 { font-size: 19px; font-weight: 600; }
+  header .meta { font-size: 12px; color: #8b949e; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #3fb950; margin-right: 6px; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+  main { padding: 24px 32px; max-width: 1200px; margin: 0 auto; }
+  .sec-title { font-size: 13px; color: #8b949e; margin-bottom: 12px; letter-spacing: 1px; }
+  .proj-title { font-size: 13.5px; color: #c9d1d9; font-weight: 600; margin: 20px 0 10px; }
+  .proj-title:first-child { margin-top: 0; }
+  .empty { text-align: center; color: #8b949e; padding: 70px 0; font-size: 14px; }
+
+  /* ===== 总览：流水线行 ===== */
+  .prow { display: grid; grid-template-columns: 130px 80px 1fr 1fr 170px; gap: 10px; align-items: center;
+          background: #161b22; border: 1px solid #30363d; border-left: 4px solid #3fb950;
+          border-radius: 10px; padding: 13px 16px; margin-bottom: 10px; text-decoration: none; color: inherit; transition: border-color .15s, transform .15s; }
+  .prow:hover { border-color: #539bf5; transform: translateY(-1px); }
+  .prow.failed { border-left-color: #f85149; }
+  .prow.running { border-left-color: #d29922; }
+  .pcell { font-size: 12.5px; color: #8b949e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pcell.commit { font-family: Consolas, monospace; color: #79c0ff; font-size: 13px; }
+  .pcell.proj { color: #c9d1d9; }
+  .pcell.time { text-align: right; }
+  .chip { display: inline-block; font-size: 11.5px; padding: 2px 9px; border-radius: 12px; margin-right: 6px; }
+  .chip.success { background: rgba(63,185,80,.15); color: #3fb950; }
+  .chip.failed { background: rgba(248,81,73,.15); color: #f85149; }
+  .chip.running { background: rgba(210,153,34,.15); color: #d29922; }
+
+  /* ===== 单次提交视图 ===== */
+  .pipe-head { margin-bottom: 18px; }
+  .pipe-head h2 { font-size: 18px; margin: 8px 0 6px; }
+  .pipe-head code { background: #1f2937; border: 1px solid #30363d; border-radius: 5px; padding: 2px 8px; color: #79c0ff; font-size: 14px; }
+  .pipe-meta { font-size: 12.5px; color: #8b949e; }
+  .pipe-meta b { color: #c9d1d9; font-weight: 500; }
+  .back { font-size: 12.5px; color: #539bf5; text-decoration: none; }
+  .back:hover { text-decoration: underline; }
+  /* ===== push 轮次切换器（同一 commit 的多次 push） ===== */
+  .push-tabs { display: flex; gap: 8px; margin: 10px 0 2px; flex-wrap: wrap; }
+  .push-tab { font-size: 12px; padding: 5px 12px; border-radius: 16px; border: 1px solid #30363d;
+              color: #8b949e; text-decoration: none; background: #161b22; }
+  .push-tab:hover { border-color: #539bf5; }
+  .push-tab.active { color: #e6e6e6; border-color: #539bf5; background: rgba(83,155,245,.12); }
+  .push-tab.failed { border-left: 3px solid #f85149; }
+  .push-tab.success { border-left: 3px solid #3fb950; }
+  .push-tab.running { border-left: 3px solid #d29922; }
+  .banner { background: rgba(210,153,34,.1); border: 1px solid rgba(210,153,34,.35); color: #d29922;
+            border-radius: 10px; padding: 14px 16px; font-size: 13px; line-height: 1.7; margin-bottom: 16px; }
+  .banner b { color: #e3b341; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; }
+  .fcard { background: #161b22; border: 1px solid #30363d; border-left: 4px solid #3d444d; border-radius: 10px; padding: 18px; transition: border-color .15s, transform .15s; }
+  .fcard.success { border-left-color: #3fb950; cursor: pointer; }
+  .fcard.failed { border-left-color: #f85149; cursor: pointer; }
+  .fcard.running { border-left-color: #d29922; cursor: pointer; }
+  .fcard.success:hover, .fcard.failed:hover, .fcard.running:hover { border-color: #539bf5; transform: translateY(-2px); }
+  .fcard.pending { opacity: .7; }
+  .fcard-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .fname { font-size: 15px; font-weight: 600; }
+  .fmeta { font-size: 12px; color: #8b949e; margin-bottom: 8px; }
+  .fmeta b { color: #adbac7; }
+  .fpreview { font-size: 12.5px; color: #adbac7; background: #0d1117; border-radius: 6px; padding: 10px; max-height: 72px; overflow: hidden; white-space: pre-wrap; word-break: break-all; }
+  .fhint { font-size: 11.5px; color: #539bf5; margin-top: 8px; }
+  .fdl { font-size: 12px; color: #8b949e; margin-top: 8px; }
+  .fdl a, .dlbar a { color: #539bf5; text-decoration: none; margin-right: 12px; }
+  .fdl a:hover, .dlbar a:hover { text-decoration: underline; }
+  .dlbar { font-size: 12.5px; color: #8b949e; padding: 8px 12px; margin-bottom: 10px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; }
+  .fpending { font-size: 13px; color: #8b949e; padding: 18px 0; text-align: center; line-height: 1.8; }
+  .fpending span { font-size: 11.5px; color: #6e7681; }
+
+  /* ===== 徽章 ===== */
+  .badge { font-size: 12px; padding: 3px 10px; border-radius: 20px; font-weight: 500; white-space: nowrap; }
+  .badge.success { background: rgba(63,185,80,.15); color: #3fb950; }
+  .badge.failed { background: rgba(248,81,73,.15); color: #f85149; }
+  .badge.running { background: rgba(210,153,34,.15); color: #d29922; animation: pulse 1.2s infinite; }
+  .badge.pending { background: rgba(139,148,158,.12); color: #8b949e; }
+
+  /* ===== 详情弹窗 ===== */
+  .modal-mask { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 10; }
+  .modal-mask.show { display: flex; align-items: center; justify-content: center; }
+  .modal { background: #161b22; border: 1px solid #30363d; border-radius: 14px; width: min(920px, 94vw); max-height: 86vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+  .modal-head { padding: 16px 22px; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between; align-items: center; }
+  .modal-head h2 { font-size: 15.5px; }
+  .close-btn { background: none; border: none; color: #8b949e; font-size: 20px; cursor: pointer; }
+  .close-btn:hover { color: #fff; }
+  .modal-body { padding: 20px 22px; overflow-y: auto; }
+  .detail-content { background: #0d1117; border: 1px solid #21262d; border-radius: 10px; padding: 18px 20px; font-size: 13.5px; line-height: 1.75; color: #c9d1d9; user-select: text; }
+
+  /* ===== 历史时间线（同一次上报链的多条记录） ===== */
+  .hist-row { border: 1px solid #21262d; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; cursor: pointer; transition: border-color .15s, background .15s; }
+  .hist-row:hover { border-color: #539bf5; background: rgba(83,155,245,.05); }
+  .hist-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .hist-time { font-size: 12px; color: #8b949e; font-family: Consolas, monospace; }
+  .hist-dur { font-size: 12px; color: #8b949e; flex: 1; text-align: right; }
+  .hist-preview { font-size: 12.5px; color: #adbac7; white-space: pre-wrap; word-break: break-all; background: #161b22; border-radius: 6px; padding: 8px 10px; }
+
+  /* ===== Markdown 渲染样式 ===== */
+  .md h1, .md h2, .md h3, .md h4 { margin: 14px 0 8px; line-height: 1.4; color: #e6e6e6; }
+  .md h1 { font-size: 18px; } .md h2 { font-size: 16px; } .md h3 { font-size: 14.5px; } .md h4 { font-size: 13.5px; }
+  .md p { margin: 6px 0; }
+  .md code { background: #1f2937; border: 1px solid #30363d; border-radius: 4px; padding: 1px 6px; font-family: Consolas, "Courier New", monospace; font-size: 12.5px; color: #79c0ff; }
+  .md pre { background: #010409; border: 1px solid #30363d; border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 10px 0; }
+  .md pre code { background: none; border: none; padding: 0; color: #c9d1d9; display: block; white-space: pre; font-size: 12.5px; line-height: 1.6; }
+  .md table { border-collapse: collapse; margin: 10px 0; font-size: 13px; }
+  .md th, .md td { border: 1px solid #30363d; padding: 6px 12px; text-align: left; }
+  .md th { background: #1c2128; }
+  .md ul { margin: 6px 0 6px 20px; }
+  .md li { margin: 4px 0; }
+  .md blockquote { border-left: 3px solid #539bf5; background: rgba(83,155,245,.08); padding: 6px 12px; margin: 8px 0; color: #adbac7; border-radius: 0 6px 6px 0; }
+  .md hr { border: none; border-top: 1px solid #30363d; margin: 14px 0; }
+  .md a { color: #539bf5; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🚀 CI 流水线面板</h1>
+  <div class="meta"><span class="dot"></span>每 5 秒自动刷新 · <span id="update-time">--</span></div>
+</header>
+<main>
+  <!-- 总览：按 提交 分组 -->
+  <section id="overview">
+    <div class="sec-title" id="ov-title">最近流水线（按项目分组 · 每项目显示最近 30 条 · 点击进入单次提交视图）</div>
+    <div id="overview-list"></div>
+    <div class="empty" id="ov-empty">暂无数据，等待流水线触发上报…</div>
+  </section>
+
+  <!-- 单次提交视图 -->
+  <section id="pipeview" style="display:none">
+    <div class="pipe-head">
+      <a class="back" id="back-link" href="/">← 返回总览</a>
+      <h2>提交 <code id="pipe-commit"></code></h2>
+      <div class="pipe-meta">项目：<b id="pipe-project">-</b> · 最近上报：<b id="pipe-time">-</b></div>
+      <div class="push-tabs" id="push-tabs" style="display:none"></div>
+    </div>
+    <div class="banner" id="pipe-empty" style="display:none">
+      ⏳ 还没有收到本次提交的上报，流水线可能正在排队。<br>
+      <b>如果长时间没有更新，很可能是推送被 pre-receive 钩子拦截了</b>，请查看你 git push 命令的输出。
+    </div>
+    <div class="grid" id="pipe-grid"></div>
+  </section>
+</main>
+
+<div class="modal-mask" id="modal-mask">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="modal-title">详情</h2>
+      <button class="close-btn" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="detail-content md" id="modal-content"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ================= 配置 =================
+// 流水线视图预置的功能块（按执行顺序；新加任务在这里加一行即可）
+// （ai_review 已停用：不再预置，历史记录里的 ai_review 会作为 extras 显示在末尾）
+const EXPECTED_FUNCS = ["gitleaks", "duplo", "hardcode", "guideline_check", "static_check", "build", "coverage", "codeql", "report"];
+const FUNC_META = {
+  "gitleaks":    { icon: "🔑", label: "Secrets 检查（gitleaks）" },
+  "duplo":       { icon: "🧩", label: "重复代码检测（duplo）" },
+  "hardcode":    { icon: "🧱", label: "硬编码检查（IP / 绝对路径）" },
+  "guideline_check": { icon: "📐", label: "编码规范（guideline_check + clang-format）" },
+  "static_check": { icon: "🧹", label: "静态检查（cppcheck + clang-tidy + clang-analyzer）" },
+  "build":       { icon: "🔨", label: "固件编译" },
+  "coverage":    { icon: "📊", label: "单元测试覆盖率（lcov）" },
+  "codeql":      { icon: "🔬", label: "CodeQL 数据流分析" },
+  "ai_review":   { icon: "🤖", label: "AI 需求符合性核对（已停用）" },
+  "report":      { icon: "📋", label: "质量报告汇总" }
+};
+const ST = {
+  success: { cls: "success", txt: "✅ 成功" },
+  failed:  { cls: "failed",  txt: "❌ 失败" },
+  running: { cls: "running", txt: "🔄 进行中" },
+  pending: { cls: "pending", txt: "⏳ 等待执行" }
+};
+// 同一次 push、同一功能块的多次上报（running → 成功/失败、被拦截后重推）
+// 在时间线里各占一条；终端卡片只显示"未被取代"的最新一条。
+// running 占位记录满足任一条件即视为"已被取代"（前端隐藏其内容）：
+//   1) 该功能块（同 commit）存在时间更晚的终态（success/failed）记录
+//   2) 该记录本身被服务端收敛过（converged=true，状态已跟随终态）
+function isSuperseded(r, byFnAll) {
+  if (r.status !== "running" && !r.converged) return false;
+  const later = (byFnAll || []).some(x => x !== r
+    && String(x.time || "") > String(r.time || "")
+    && x.status !== "running");
+  return later || !!r.converged;
+}
+// 记录来源标注：pre-receive 钩子还是 CI 流水线
+function srcLabel(r) {
+  const p = String(r.pipeline_id ?? "-");
+  return p === "pre-receive" ? "pre-receive 钩子" : "CI 流水线 #" + p;
+}
+// 同一 commit 的多次 push（被拦截后重推、commit 不变）该怎么区分？
+// 归组键为 (project, commit, push_seq)：push_seq 由服务端按到达顺序推算，
+// 同一轮 push 的钩子与 CI 记录天然落在同一组；被拦截后重推 → 新一轮，
+// 各轮记录互不影响（时间线、终态收敛都限定在轮次内）。
+function isSameRecord(a, b) {
+  return (a.project || "-") === (b.project || "-") && matchCommit(b, a.commit || "")
+    && Number(a.push_seq || 1) === Number(b.push_seq || 1);
+}
+// 组内代表 commit：同一 commit 可能同时存在全量 sha（钩子）与短 sha
+//（CI_COMMIT_SHORT_SHA 8 位）两种写法，聚类按前缀匹配能归并，
+// 但轮次统计若按字面 commit 做 key 会漏数 —— 取组内最长者为代表
+function canonCommit(g) {
+  let c = "";
+  for (const r of g) {
+    const cc = r.commit || "";
+    if (cc.length > c.length) c = cc;
+  }
+  return c || "-";
+}
+
+// 把一批记录按 (project, commit, push_seq) 归并为若干组：一次 push 一组；
+// 组内记录按时间正序（旧→新），最后一条即该轮 push 的最新上报。
+// 同一 commit 的多次 push 分开成组，互不污染。
+function clusterByCommit(records) {
+  const groups = [];
+  for (const r of records) {
+    let g = null;
+    for (const grp of groups) {
+      if (isSameRecord(grp.list[0], r)) { g = grp; break; }
+    }
+    if (!g) { g = { list: [] }; groups.push(g); }
+    g.list.push(r);
+  }
+  return groups.map(g => g.list);
+}
+
+// ================= 全局状态 =================
+const COMMIT = new URLSearchParams(location.search).get("commit") || "";
+// 项目过滤：/?project=<组/项目> 时总览只显示该仓库（提交视图"返回总览"落到这里）；
+// 裸访问 / 仍是全部仓库的全局总览。
+const PROJECT = new URLSearchParams(location.search).get("project") || "";
+// push 轮次：同一 commit 被拦截后重推（commit 不变）算新一轮，?push=N 定位某一轮
+const PUSH = new URLSearchParams(location.search).get("push") || "";
+const ORIG_TITLE = document.title;
+let allRecords = [];
+let detailPool = [];   // 当前页面卡片对应的记录
+let lastSeenKey = null;
+let flashTimer = null;
+let audioCtx = null;
+let renderToken = null;   // 详情分片渲染的取消令牌（关弹窗/开新详情时作废旧任务）
+
+// ================= 工具 =================
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function matchCommit(r, sha) {
+  if (!sha) return true;
+  const a = r.commit || "", b = sha;
+  return a && b && a !== "未知" && (a.startsWith(b) || b.startsWith(a));
+}
+function badge(st) {
+  const m = ST[st] || ST.running;
+  return `<span class="badge ${m.cls}">${m.txt}</span>`;
+}
+function funcLabel(fn) {
+  const m = FUNC_META[fn];
+  return m ? m.icon + " " + m.label : "🔧 " + fn;
+}
+// 秒数按区间自适应单位：ms / s / min / h
+//   <1s      → 850ms
+//   <60s     → 8.1s
+//   <1h      → 2min 5s
+//   >=1h     → 1h 3min
+function fmtSecs(v) {
+  const n = Number(v);
+  if (!isFinite(n) || n < 0) return "";
+  if (n < 1) return Math.round(n * 1000) + "ms";
+  if (n < 60) return n.toFixed(1) + "s";
+  if (n < 3600) {
+    const m = Math.floor(n / 60), s = Math.round(n % 60);
+    return s ? `${m}min ${s}s` : `${m}min`;
+  }
+  const h = Math.floor(n / 3600), m = Math.round((n % 3600) / 60);
+  return m ? `${h}h ${m}min` : `${h}h`;
+}
+// 各检查环节耗时 [["cppcheck", 8.1], ...] → "⏱ cppcheck 8.1s · 编码规范 4.2s"
+function fmtDurations(ds) {
+  if (!Array.isArray(ds)) return "";
+  const parts = ds.filter(d => Array.isArray(d) && d.length === 2 && isFinite(Number(d[1])))
+                  .map(d => `${d[0]} ${fmtSecs(d[1])}`);
+  return parts.length ? "⏱ " + parts.join(" · ") : "";
+}
+
+// ================= 轻量 Markdown 渲染（只读展示用） =================
+function mdInline(s) {
+  return s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+function mdRender(src) {
+  const lines = esc(String(src ?? "")).split("\n");
+  const out = [];
+  let inCode = false, listOpen = false, tableBuf = [];
+  const closeList = () => { if (listOpen) { out.push("</ul>"); listOpen = false; } };
+  const splitRow = line => line.replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
+  const flushTable = () => {
+    if (!tableBuf.length) return;
+    let h = "<table><thead><tr>" + tableBuf[0].map(c => `<th>${mdInline(c)}</th>`).join("") + "</tr></thead><tbody>";
+    for (const r of tableBuf.slice(2)) h += "<tr>" + r.map(c => `<td>${mdInline(c)}</td>`).join("") + "</tr>";
+    out.push(h + "</tbody></table>");
+    tableBuf = [];
+  };
+  for (const line of lines) {
+    if (/^```/.test(line.trim())) {
+      if (inCode) { out.push("</code></pre>"); inCode = false; }
+      else { closeList(); flushTable(); out.push("<pre><code>"); inCode = true; }
+      continue;
+    }
+    if (inCode) { out.push(line + "\n"); continue; }
+    if (/^\s*\|.*\|\s*$/.test(line)) { closeList(); tableBuf.push(splitRow(line)); continue; }
+    flushTable();
+    const t = line.trim();
+    if (t === "") { closeList(); continue; }
+    let m;
+    if ((m = t.match(/^(#{1,4})\s+(.*)/))) { closeList(); const l = m[1].length; out.push(`<h${l}>${mdInline(m[2])}</h${l}>`); }
+    else if (/^---+$/.test(t)) { closeList(); out.push("<hr>"); }
+    else if ((m = t.match(/^&gt;\s?(.*)/))) { closeList(); out.push(`<blockquote>${mdInline(m[1])}</blockquote>`); }
+    else if ((m = t.match(/^[-*]\s+(.*)/))) { if (!listOpen) { out.push("<ul>"); listOpen = true; } out.push(`<li>${mdInline(m[1])}</li>`); }
+    else { closeList(); out.push(`<p>${mdInline(t)}</p>`); }
+  }
+  if (inCode) out.push("</code></pre>");
+  closeList(); flushTable();
+  return out.join("");
+}
+
+// ---- 大文本分块：把全文切成可独立渲染的块 ----
+// 代码块 / 表格 / 列表各自切成一整块（块内状态自洽），其余普通行按段落攒块。
+// 这样几 MB 的详情也能"分块渲染 + 滚动懒加载"，逐块走 markdown 而不会卡死主线程。
+const LAZY_MAX_MD_LINES = 1200;   // 普通段落块的最大行数（防止单个块过大）
+function splitBlocks(src) {
+  const lines = String(src ?? "").replace(/\r\n/g, "\n").split("\n");
+  const out = [];
+  let mdBuf = [];
+  const flushMd = () => {
+    if (mdBuf.length) out.push({ type: "md", lines: mdBuf });
+    mdBuf = [];
+  };
+  const isTableRow = l => /^\s*\|.*\|\s*$/.test(l);
+  let i = 0;
+  while (i < lines.length) {
+    const t = lines[i].trim();
+    if (/^```/.test(t)) {                       // 代码块（含结束行）
+      flushMd();
+      const buf = [lines[i]]; i++;
+      while (i < lines.length && !/^```\s*$/.test(lines[i].trim())) { buf.push(lines[i]); i++; }
+      if (i < lines.length) buf.push(lines[i]);
+      i++;
+      out.push({ type: "code", lines: buf });
+    } else if (isTableRow(lines[i]) && i + 1 < lines.length &&
+               /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1].trim()) && lines[i + 1].includes("-")) {
+      flushMd();                                // 表格：表头 + 分隔行 + 数据行
+      const buf = [lines[i], lines[i + 1]]; i += 2;
+      while (i < lines.length && isTableRow(lines[i])) { buf.push(lines[i]); i++; }
+      out.push({ type: "table", lines: buf });
+    } else if (/^[-*]\s+/.test(t)) {            // 列表（含缩进续行）
+      flushMd();
+      const buf = [];
+      while (i < lines.length) {
+        const nt = lines[i].trim();
+        if (/^[-*]\s+/.test(nt) || /^\d+[.)]\s+/.test(nt)) { buf.push(lines[i]); i++; }
+        else if (/^\s{2,}\S/.test(lines[i])) { buf.push(lines[i]); i++; }
+        else break;
+      }
+      out.push({ type: "list", lines: buf });
+    } else {                                    // 普通行：攒成段落块
+      mdBuf.push(lines[i]); i++;
+      if (mdBuf.length >= LAZY_MAX_MD_LINES) flushMd();
+    }
+  }
+  flushMd();
+  return out;
+}
+// 单个块 → HTML：块内状态自洽，直接复用 mdRender 状态机即可安全渲染
+function renderBlock(blk) {
+  return mdRender(blk.lines.join("\n"));
+}
+
+// ================= 提醒：声音 / 标题闪烁 / 系统通知 =================
+function beep() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const t = audioCtx.currentTime;
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    o.type = "sine";
+    o.frequency.setValueAtTime(880, t);
+    o.frequency.setValueAtTime(1318, t + 0.15);
+    g.gain.setValueAtTime(0.001, t);
+    g.gain.exponentialRampToValueAtTime(0.2, t + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+    o.start(t); o.stop(t + 0.65);
+  } catch (e) {}
+}
+function flashTitle() {
+  if (flashTimer) return;
+  let on = false;
+  flashTimer = setInterval(() => {
+    on = !on;
+    document.title = (on ? "【新结果】 " : "") + ORIG_TITLE;
+  }, 800);
+}
+window.addEventListener("focus", () => {
+  if (flashTimer) { clearInterval(flashTimer); flashTimer = null; document.title = ORIG_TITLE; }
+});
+function sysNotify(title, body) {
+  if (!("Notification" in window)) return;   // 注意: HTTP 非安全上下文下部分浏览器不支持
+  if (Notification.permission === "granted") new Notification(title, { body });
+}
+document.addEventListener("click", () => {
+  if ("Notification" in window && Notification.permission === "default") Notification.requestPermission();
+}, { once: true });
+
+// ================= 渲染 =================
+// 提交视图 URL：/?commit=<sha>。归组键统一为 (project, commit)，
+// 一个提交一条流水线行；每功能块取最新一条记录显示。
+function renderOverview(rs) {
+  document.getElementById("overview").style.display = "block";
+  document.getElementById("pipeview").style.display = "none";
+  // 项目过滤：带 ?project= 时只显示本仓库，并在标题处给回全局总览的入口
+  if (PROJECT) rs = rs.filter(r => (r.project || "-") === PROJECT);
+  document.getElementById("ov-title").innerHTML = PROJECT
+    ? `最近流水线（仅 <b style="color:#79c0ff">${esc(PROJECT)}</b> · 最近 30 条 · 点击进入单次提交视图 · <a href="/" style="color:#539bf5">查看全部仓库 →</a>）`
+    : "最近流水线（按项目分组 · 每项目显示最近 30 条 · 点击进入单次提交视图）";
+  // 先按项目分开，项目内再按 (project, commit, push_seq) 聚类：
+  // 一次 push 一行；同一 commit 被拦截后重推（commit 不变）也各占一行。
+  const byProject = {};
+  for (const r of rs) {
+    const p = r.project || "-";
+    (byProject[p] = byProject[p] || []).push(r);
+  }
+  const projects = Object.keys(byProject).map(p => {
+    const groups = clusterByCommit(byProject[p])
+      .sort((a, b) => (b[b.length-1].time || "").localeCompare(a[a.length-1].time || "")
+                      || Number(b[b.length-1].push_seq || 1) - Number(a[a.length-1].push_seq || 1))
+      .slice(0, 30);
+    // 同一 commit 的 push 轮次数（>1 时在行上标注 #N 以区分）；
+    // key 用组内代表 commit（最长 sha），兼容长短 sha 混合上报
+    const roundCnt = {};
+    for (const g of groups) {
+      const c = canonCommit(g);
+      roundCnt[c] = (roundCnt[c] || 0) + 1;
+    }
+    return { name: p, groups, roundCnt, latest: groups.length ? (groups[0][groups[0].length-1].time || "") : "" };
+  }).sort((a, b) => b.latest.localeCompare(a.latest));   // 最近有活动的项目排前面
+  document.getElementById("ov-empty").style.display = projects.length ? "none" : "block";
+  document.getElementById("overview-list").innerHTML = projects.map(pr => {
+    const rows = pr.groups.map(g => {
+      const last = [...g].sort((a, b) => (b.time || "").localeCompare(a.time || ""))[0];
+      const overall = g.some(r => r.status === "failed") ? "failed" : (g.some(r => r.status === "running") ? "running" : "success");
+      // 同一功能块可能有多条上报（running → 成功/失败、钩子+CI 各一条），
+      // chip 只显示一次、状态取该功能块的最终结果（忽略已被取代的占位记录）
+      const byFn = {};
+      for (const r of g) (byFn[r.function] = byFn[r.function] || []).push(r);
+      const chips = Object.keys(byFn).map(fn => {
+        const sub = byFn[fn];
+        const fin = sub.filter(x => !isSuperseded(x, sub)).sort(
+          (a, b) => (b.time || "").localeCompare(a.time || ""))[0] || sub[sub.length - 1];
+        return `<span class="chip ${(ST[fin.status]||ST.running).cls}">${esc(fn)}</span>`;
+      }).join("");
+      // 行上统一显示组内代表 commit（最长 sha），避免同一轮里钩子（全量）
+      // 与 report/CI（短 sha）混报时两行长度不一
+      const commit = canonCommit(g);
+      const seq = Number(last.push_seq || 1);
+      const multi = (pr.roundCnt[commit] || 0) > 1;
+      // 行链接带上 project/push：项目总览里点开某次 push、再返回时仍落在本项目总览；
+      // 同一 commit 的多次 push 各自指向对应轮次
+      const link = (commit !== "-" && commit !== "未知")
+        ? `?commit=${encodeURIComponent(commit)}${PROJECT ? "&project=" + encodeURIComponent(PROJECT) : ""}&push=${seq}` : "#";
+      // 同一 commit 有多轮 push 时，在功能块徽章前标注 #N 以区分
+      const seqChip = multi
+        ? `<span class="chip" style="background:rgba(139,148,158,.18);color:#c9d1d9">#${seq}</span>` : "";
+      return `<a class="prow ${overall}" href="${link}">
+        <span class="pcell commit">${esc(commit.slice(0, 12))}</span>
+        <span class="pcell">${esc(srcLabel(last))}</span>
+        <span class="pcell proj">${esc(last.project)}</span>
+        <span class="pcell">${seqChip}${chips}</span>
+        <span class="pcell time">${esc(last.time)}</span>
+      </a>`;
+    }).join("");
+    return `<div class="proj-title">📁 ${esc(pr.name)}</div>${rows}`;
+  }).join("");
+}
+
+function renderPipeline(rs) {
+  document.getElementById("overview").style.display = "none";
+  document.getElementById("pipeview").style.display = "block";
+  // 同一 commit 的多次 push（被拦截后重推，commit 不变）按 push_seq 分成
+  // 多轮，每轮独立展示、互不影响；URL 带 ?push= 定位轮次，缺省取最新一轮
+  const rounds = {};
+  for (const r of rs) {
+    const s = Number(r.push_seq || 1);
+    (rounds[s] = rounds[s] || []).push(r);
+  }
+  const seqs = Object.keys(rounds).map(Number).sort((a, b) => a - b);
+  const curSeq = (PUSH && rounds[Number(PUSH)]) ? Number(PUSH) : seqs[seqs.length - 1];
+  const view = curSeq != null ? (rounds[curSeq] || []) : [];
+  document.getElementById("pipe-commit").textContent = COMMIT.slice(0, 12);
+  // 轮次切换器：同一 commit 有多次 push 时显示，每轮标注最终状态与时间
+  const tabsEl = document.getElementById("push-tabs");
+  if (seqs.length > 1) {
+    tabsEl.style.display = "flex";
+    tabsEl.innerHTML = seqs.map(s => {
+      const sub = rounds[s];
+      const lastR = [...sub].sort((a, b) => (b.time || "").localeCompare(a.time || ""))[0];
+      const ov = sub.some(x => x.status === "failed") ? "failed"
+               : (sub.some(x => x.status === "running") ? "running" : "success");
+      const url = `?commit=${encodeURIComponent(COMMIT)}${PROJECT ? "&project=" + encodeURIComponent(PROJECT) : ""}&push=${s}`;
+      return `<a class="push-tab ${ov} ${s === curSeq ? "active" : ""}" href="${url}">#${s} · ${esc(lastR ? lastR.time : "")}</a>`;
+    }).join("");
+  } else {
+    tabsEl.style.display = "none";
+    tabsEl.innerHTML = "";
+  }
+  const latest = [...view].sort((a, b) => (b.time || "").localeCompare(a.time || ""))[0] || null;
+  document.getElementById("pipe-project").textContent = latest ? latest.project : "-";
+  document.getElementById("pipe-time").textContent = latest ? latest.time : "-";
+  // 「返回总览」落到本项目的过滤总览（/?project=<项目>），而不是全部仓库的全局总览；
+  // 记录未到时（流水线排队中）先退回全局总览。
+  const back = document.getElementById("back-link");
+  const curProject = PROJECT || (latest ? (latest.project || "") : "");
+  if (curProject && curProject !== "-") {
+    back.href = "/?project=" + encodeURIComponent(curProject);
+    back.textContent = "← 返回总览（" + curProject + "）";
+  } else {
+    back.href = "/";
+    back.textContent = "← 返回总览";
+  }
+  document.getElementById("pipe-empty").style.display = view.length ? "none" : "block";
+
+  // 按功能块归组：取【最终结果】（未被取代且时间最新）。running 占位
+  // 记录（已被终态取代或被收敛）不占卡片、不进预览 —— 消除"内容是正在
+  // 执行、徽章是成功"的半成品；时间线里仍完整保留每次上报。
+  const byFunc = {};
+  const allByFunc = {};
+  for (const r of view) (allByFunc[r.function] = allByFunc[r.function] || []).push(r);
+  for (const fn of Object.keys(allByFunc)) {
+    const sub = allByFunc[fn];
+    byFunc[fn] = sub.filter(x => !isSuperseded(x, sub))
+      .sort((a, b) => (b.time || "").localeCompare(a.time || ""))[0] || null;
+  }
+  const extras = Object.keys(allByFunc).filter(f => !EXPECTED_FUNCS.includes(f));
+  const funcs = [...EXPECTED_FUNCS, ...extras];
+
+  detailPool = [];
+  document.getElementById("pipe-grid").innerHTML = funcs.map(fn => {
+    const sub = allByFunc[fn] || [];
+    const r = byFunc[fn];
+    const st = r ? r.status : "pending";
+    const m = ST[st] || ST.running;
+    if (!r) {
+      return `<div class="fcard pending">
+        <div class="fcard-head"><span class="fname">${esc(funcLabel(fn))}</span>${badge("pending")}</div>
+        <div class="fpending">尚未收到该任务的上报<br><span>若本次 push 不包含此任务，将一直保持等待状态</span></div>
+      </div>`;
+    }
+    const idx = detailPool.length;
+    detailPool.push(r);
+    // 质量报告汇总卡片：下载区（report.md/docx/pdf 超链接，触发浏览器下载）；
+    // docx/pdf 由服务端 doc_generator 异步生成，链接由 fillReportDl 延迟补齐
+    const dlLine = fn === "report"
+      ? `<div class="fdl" data-dlrep="${idx}">📥 报告文件加载中…</div>` : "";
+    // 同一次 push 同一功能块的总上报数（含被取代的 running 占位），
+    // 时间线里逐条可见；占位条目前端隐藏内容、标注"已被取代"
+    const visibleHist = sub.filter(x => !isSuperseded(x, sub));
+    const histCount = sub.length;
+    const suppressed = sub.length - visibleHist.length;
+    const preview = (r.content || "").slice(0, 140);
+    const dur = fmtDurations(r.durations);
+    const supNote = suppressed > 0 ? ` · <span style="color:#8b949e">${suppressed} 条占位已取代（时间线可见）</span>` : "";
+    // 质量报告汇总：来源/耗时/各检查项状态等汇总信息都在报告内容本体里，
+    // 卡片上不再重复显示元信息行，保持简洁（详情弹窗内容不受影响）
+    const metaLine = fn === "report" ? "" :
+      `<div class="fmeta">${esc(srcLabel(r))} · ${esc(r.time)}${dur ? " · " + esc(dur) : ""}${r.expired ? ' · <b style="color:#f85149">已中断（无终态，按失败处理）</b>' : ""}${histCount > 1 ? ` · <b>${histCount}</b> 次上报，点开看时间线` : ""}${supNote}</div>`;
+    return `<div class="fcard ${m.cls}" onclick="openDetail(${idx})">
+      <div class="fcard-head"><span class="fname">${esc(funcLabel(fn))}</span>${badge(st)}</div>
+      ${metaLine}
+      <div class="fpreview">${esc(preview)}${(r.content||"").length > 140 ? "…" : ""}</div>
+      ${dlLine}
+      <div class="fhint">点击查看详情 →</div>
+    </div>`;
+  }).join("");
+  // report 卡片下载区异步填充（docx/pdf 服务端生成有延迟，内部自动重试）
+  document.querySelectorAll("[data-dlrep]").forEach(el => {
+    const rec = detailPool[Number(el.getAttribute("data-dlrep"))];
+    if (rec) fillReportDl(el, rec, 0);
+  });
+}
+
+// ============ 报告文件下载（report 功能块）============
+const rptFileCache = {};   // key: project|commit|at -> {ok, dir, files}
+async function fetchReportFiles(r, force) {
+  const key = (r.project || "") + "|" + (r.commit || "") + "|" + (r.time || "");
+  if (!force && rptFileCache[key]) return rptFileCache[key];
+  try {
+    const res = await fetch("/api/report_files?project=" + encodeURIComponent(r.project || "") +
+                            "&commit=" + encodeURIComponent(r.commit || "") +
+                            "&at=" + encodeURIComponent(r.time || ""));
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.ok) { rptFileCache[key] = data; return data; }
+    }
+  } catch (e) {}
+  const empty = { ok: false, files: [] };
+  rptFileCache[key] = empty;
+  return empty;
+}
+function reportDlLinks(r, files) {
+  const show = (files || []).filter(f => /^report\.(md|docx|pdf)$/.test(f.name));
+  if (!show.length) return "";
+  const base = "/api/report_download?project=" + encodeURIComponent(r.project || "") +
+               "&commit=" + encodeURIComponent(r.commit || "") +
+               "&at=" + encodeURIComponent(r.time || "") + "&file=";
+  return show.map(f =>
+    `<a href="${base}${encodeURIComponent(f.name)}" download ` +
+    `onclick="event.stopPropagation()">${esc(f.name)}</a>`).join("");
+}
+// 填充下载区；docx/pdf 由服务端 doc_generator 异步生成，刚存档时可能只有
+// report.md —— 缺附件时自动隔几秒重试补齐，无需手动刷新页面
+async function fillReportDl(el, r, tries) {
+  const data = await fetchReportFiles(r, tries > 0);
+  if (!document.contains(el)) return;   // 卡片已被重绘 / 弹窗已关闭
+  const links = reportDlLinks(r, data.files);
+  const names = (data.files || []).map(f => f.name);
+  const incomplete = !names.includes("report.docx") || !names.includes("report.pdf");
+  if (links) {
+    el.innerHTML = "📥 报告下载：" + links;
+  } else {
+    el.innerHTML = tries < 2 ? "📥 报告文件准备中…" : "";
+  }
+  if (tries < 2 && (!links || incomplete)) {
+    setTimeout(() => fillReportDl(el, r, tries + 1), 8000 * (tries + 1));
+  }
+}
+
+// ================= 详情弹窗 =================
+// 列表接口只带 content 预览，打开详情时按需拉全文（拉过一次就缓存在记录上）
+async function openDetail(i) {
+  const r = detailPool[i];
+  if (!r) return;
+  document.getElementById("modal-mask").classList.add("show");
+  // 时间线 = 同一轮 push (project, commit, push_seq, function) 下该功能块的
+  // 全部记录（running/终态都在）；不同轮 push 互不影响。
+  // history 接口返回项目文件 _idx 才能被 detail 按 idx 精确定位，
+  // 服务端不可用时退回本地 allRecords 过滤
+  let hist = [];
+  try {
+    const res = await fetch("/api/history?commit=" + encodeURIComponent(r.commit || "") +
+                            "&function=" + encodeURIComponent(r.function || "") +
+                            "&project=" + encodeURIComponent(r.project || "") +
+                            "&push=" + encodeURIComponent(r.push_seq || 1));
+    if (res.ok) hist = await res.json();
+  } catch (e) {}
+  if (!Array.isArray(hist) || !hist.length) hist = sameFuncHistory(r);
+  if (hist.length > 1) {
+    showHistory(r, hist);
+    return;
+  }
+  if (hist.length === 1) {
+    const h = hist[0];
+    r.content = h.content || r.content;
+    r.time = h.time || r.time;
+    r.durations = h.durations || r.durations;
+    if (typeof h.content === "string" && h.content.length <= 20000) r.fullLoaded = true;
+  }
+  if (r.fullLoaded) { showRecord(r); return; }
+  document.getElementById("modal-title").textContent =
+    funcLabel(r.function) + " · " + r.time;
+  document.getElementById("modal-content").textContent = "加载中…";
+  try {
+    const res = await fetch("/api/detail?commit=" + encodeURIComponent(r.commit || "") +
+                            "&function=" + encodeURIComponent(r.function || "") +
+                            "&project=" + encodeURIComponent(r.project || "") +
+                            "&push=" + encodeURIComponent(r.push_seq || 1));
+    if (res.ok) {
+      const full = await res.json();
+      if (full && typeof full.content === "string") {
+        r.content = full.content;
+        r.fullLoaded = true;
+      }
+    }
+  } catch (e) {}
+  showRecord(r);
+}
+// 服务端 history 不可用时的降级：本地算同一轮 push (project, commit,
+// push_seq, function) 该功能块的全部记录（时间正序；detail 走 find_record）
+function sameFuncHistory(cur) {
+  const hist = (allRecords || []).filter(x =>
+    x.function === cur.function &&
+    (x.project || "-") === (cur.project || "-") &&
+    Number(x.push_seq || 1) === Number(cur.push_seq || 1) &&
+    matchCommit(x, cur.commit || ""));
+  hist.sort((a, b) => (a.time || "").localeCompare(b.time || ""));
+  return hist;
+}
+// 时间线视图：同一次 push（钩子+CI 归并）该功能块的每条历史记录一行
+function showHistory(cur, hist) {
+  if (renderToken) renderToken.cancelled = true;   // 作废旧的分块渲染任务
+  // 时间线视图不显示下载条（下载在点开终态记录的详情里）；清掉上次残留的
+  const oldBar = document.getElementById("dlbar");
+  if (oldBar) oldBar.remove();
+  // 被取代的 running 占位记录仍在时间线显示（追加语义保留），但内容
+  // 折叠为一行"已被取代"，避免"内容是正在执行、徽章是成功"的半成品
+  const superseded = hist.map(h => isSuperseded(h, hist));
+  const visible = hist.filter((h, i) => !superseded[i]);
+  document.getElementById("modal-title").textContent =
+    funcLabel(cur.function) + " · 历史记录（" + hist.length + " 次上报"
+    + (visible.length !== hist.length ? " · " + (hist.length - visible.length) + " 条占位已取代" : "") + "）";
+  const el = document.getElementById("modal-content");
+  el.className = "detail-content md";
+  el.innerHTML = "";
+  const t0 = document.createElement("p");
+  t0.style.cssText = "color:#8b949e;font-size:12.5px;margin-bottom:12px;";
+  t0.textContent = "每次上报各占一条，按时间正序（旧→新）；被终态取代的 running 占位自动折叠：";
+  el.appendChild(t0);
+  hist.forEach((h, idx) => {
+    const row = document.createElement("div");
+    row.className = "lzchunk hist-row";
+    if (superseded[idx]) {
+      row.innerHTML = `<div class="hist-head">
+        <span class="badge running">已被取代</span>
+        <span class="hist-time">${esc(h.time || "")}</span>
+        <span class="hist-dur">${fmtDurations(h.durations)}</span>
+      </div>
+      <div class="hist-preview" style="color:#6e7681">（running 占位：该条内容已由后续上报取代，点击展开）</div>`;
+      row.onclick = () => openHistoryDetail(cur, hist, idx, true);
+    } else {
+      row.innerHTML = `<div class="hist-head">
+        <span class="badge ${(ST[h.status]||ST.running).cls}">${esc((ST[h.status]||ST.running).txt)}${h.expired ? "（中断）" : ""}</span>
+        <span class="hist-time">${esc(h.time || "")}</span>
+        <span class="hist-dur">${fmtDurations(h.durations)}</span>
+      </div>
+      <div class="hist-preview">${esc((h.content || "（无内容）").slice(0, 200))}${(h.content||"").length > 200 ? "…" : ""}</div>`;
+      row.onclick = () => openHistoryDetail(cur, hist, idx, false);
+    }
+    el.appendChild(row);
+  });
+}
+async function openHistoryDetail(cur, hist, idx, isSupersededRow) {
+  const h = hist[idx];
+  if (!h) return;
+  const clone = Object.assign({}, cur, { fullLoaded: false });
+  // 占位行被点击时也能展开看原始内容；正常行直接用历史里的 content
+  clone.content = h.content || cur.content;
+  clone.time = h.time || cur.time;
+  clone.durations = h.durations || cur.durations;
+  clone.project = h.project || cur.project;
+  clone.commit = h.commit || cur.commit;
+  clone.push_seq = h.push_seq || cur.push_seq;
+  clone.pipeline_id = h.pipeline_id || cur.pipeline_id;
+  clone.function = h.function || cur.function;
+  if (isSupersededRow) {
+    clone.content = h.content
+      + "\n\n---\n\n> ⚠️ 本条为 running 占位记录，已被同一次提交的后续终态上报取代。"
+      + "状态与内容以时间线内时间更新的记录为准。";
+  }
+  const fetchFull = (typeof h.content !== "string") || h.content.length > 20000;
+  if (!fetchFull) {
+    clone.fullLoaded = true;
+  } else {
+    // 内容较大：走 detail 接口按 _idx 拉该条全文（多条同功能块记录不串数据）
+    try {
+      const url = "/api/detail?commit=" + encodeURIComponent(clone.commit || "") +
+                  "&function=" + encodeURIComponent(clone.function || "") +
+                  "&project=" + encodeURIComponent(clone.project || "") +
+                  "&push=" + encodeURIComponent(clone.push_seq || 1) +
+                  (h._idx != null ? "&idx=" + encodeURIComponent(h._idx) : "");
+      const res = await fetch(url);
+      if (res.ok) {
+        const full = await res.json();
+        if (full && typeof full.content === "string") {
+          if (isSupersededRow) clone.content = full.content
+            + "\n\n---\n\n> ⚠️ 本条为 running 占位记录，已被同一次提交的后续终态上报取代。";
+          else clone.content = full.content;
+        }
+        clone.fullLoaded = true;
+      }
+    } catch (e) {}
+  }
+  showRecord(clone);
+}
+// 详情弹窗：小内容一次渲染完整 Markdown；大内容改 Markdown 分块 + 滚动懒加载
+// （滚到哪渲染到哪，分片让出主线程，页面不卡）
+const MD_RENDER_MAX = 200000;   // 超过该大小改走分块懒渲染
+const SCROLL_BATCH = 40;        // 懒加载每批渲染的块数
+function showRecord(r) {
+  const dur = fmtDurations(r.durations);
+  document.getElementById("modal-title").textContent =
+    funcLabel(r.function) + " · " + r.time + (dur ? " · " + dur : "");
+  const el = document.getElementById("modal-content");
+  // report 功能块：内容上方加报告文件下载条（md/docx/pdf 超链接）
+  const oldBar = document.getElementById("dlbar");
+  if (oldBar) oldBar.remove();
+  if (r.function === "report") {
+    const bar = document.createElement("div");
+    bar.id = "dlbar";
+    bar.className = "dlbar";
+    bar.textContent = "📥 报告文件加载中…";
+    el.parentNode.insertBefore(bar, el);
+    fillReportDl(bar, r, 0);
+  }
+  const c = (r.expired
+    ? "> ⛔ 本次检查未上报最终结果（脚本中断/卡死或被后续 push 取代），面板已按失败处理。\n\n"
+    : "") + (r.content || "（无内容）");
+  if (renderToken) renderToken.cancelled = true;   // 作废上一次没渲染完的任务
+  // 小内容：一次渲染完整 Markdown
+  if (c.length <= MD_RENDER_MAX) {
+    el.className = "detail-content md";
+    el.innerHTML = mdRender(c);
+    return;
+  }
+  // 大内容：分块 + 滚动懒加载
+  el.className = "detail-content md";
+  el.innerHTML = "";
+  const token = { cancelled: false };
+  renderToken = token;
+  const perf = document.createElement("div");
+  perf.style.cssText = "color:#8b949e;font-size:12px;margin-bottom:8px;";
+  el.appendChild(perf);
+  const blocks = splitBlocks(c);
+  let bi = 0;                      // 已渲染块下标
+  const sentinel = document.createElement("div");
+  sentinel.style.cssText = "height:1px;";
+  sentinel.textContent = "";
+  el.appendChild(sentinel);
+  let observer = null;
+  // 每片渲染一块：让出主线程，页面保持响应
+  function step() {
+    if (token.cancelled) return;
+    const wrap = document.createElement("div");
+    wrap.className = "lzchunk";
+    wrap.innerHTML = renderBlock(blocks[bi]);
+    el.insertBefore(wrap, sentinel);
+    bi++;
+    if (bi < blocks.length) {
+      perf.textContent = `内容较大，按需渲染中… ${Math.round(bi / blocks.length * 100)}%`;
+      setTimeout(step, 0);
+    } else {
+      perf.textContent = `（内容较大，已分块渲染）`;
+      if (observer) observer.disconnect();
+    }
+  }
+  // 首屏渲染一屏左右的块，滚动接近底部时触发补块（步进式）
+  function pump() {
+    if (token.cancelled) return;
+    for (let k = 0; k < SCROLL_BATCH && bi < blocks.length; k++) step();
+    if (bi >= blocks.length) return;
+    perf.textContent = `内容较大，按需渲染中… ${Math.round(bi / blocks.length * 100)}%（滚动到底部继续加载）`;
+  }
+  pump();
+  observer = new IntersectionObserver(entries => {
+    if (token.cancelled) return;
+    if (entries.some(e => e.isIntersecting)) pump();
+  }, { root: el, rootMargin: "1400px 0px" });   // 提前预加载，滚动顺滑
+  observer.observe(sentinel);
+  // 滚动兜底：部分滚轮场景 IntersectionObserver 不触发，滚近底部直接补块
+  const onScroll = () => {
+    if (token.cancelled || bi >= blocks.length) return;
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (dist < 1600) pump();
+  };
+  el.addEventListener("scroll", onScroll, { passive: true });
+  token.scrollCleanup = () => el.removeEventListener("scroll", onScroll);
+}
+function closeModal() {
+  if (renderToken) { renderToken.cancelled = true; if (renderToken.scrollCleanup) renderToken.scrollCleanup(); }
+  document.getElementById("modal-mask").classList.remove("show");
+}
+document.getElementById("modal-mask").addEventListener("click", e => {
+  if (e.target.id === "modal-mask") closeModal();
+});
+
+// ================= 主循环 =================
+async function refresh() {
+  let rs;
+  try {
+    // commit/project 视图让服务端过滤，避免每 5 秒拉全量记录
+    const params = [];
+    if (COMMIT) params.push("commit=" + encodeURIComponent(COMMIT));
+    if (PROJECT) params.push("project=" + encodeURIComponent(PROJECT));
+    const res = await fetch("/api/results" + (params.length ? "?" + params.join("&") : ""));
+    rs = await res.json();
+  } catch (e) { return; }
+  allRecords = rs;
+  document.getElementById("update-time").textContent = "上次刷新 " + new Date().toLocaleTimeString("zh-CN");
+
+  const view = COMMIT ? allRecords.filter(r => matchCommit(r, COMMIT)) : allRecords;
+  // 数据签名：任一记录的 提交/流水线/功能块/状态/时间 变了才算有更新；
+  // 没变就直接跳过——不重渲染、不提醒（长列表全量重渲染是卡顿主因）。
+  // 排序后算签名：多项目并存时服务端返回顺序可能波动，避免误报"有新结果"
+  const key = view.map(r => (r.commit || "") + ":" + (r.pipeline_id || "") + ":" +
+                            (r.function || "") + ":" + (r.status || "") + ":" +
+                            (r.time || "")).sort().join("|");
+  if (key === lastSeenKey) return;
+  const firstLoad = lastSeenKey === null;
+  lastSeenKey = key;
+  if (!firstLoad) {   // 首次加载不提醒
+    const n = view[view.length - 1];
+    beep();
+    flashTitle();
+    sysNotify("CI 流水线面板", n ? funcLabel(n.function) + " " + (ST[n.status] || ST.running).txt : "有新结果");
+  }
+
+  if (COMMIT) renderPipeline(view); else renderOverview(allRecords);
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
